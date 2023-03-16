@@ -38,5 +38,13 @@ except:
     print(sys.exc_info()[1])
     sys.exit(2)
     
-print(f"From: {svc_from}")
-print(f"To:   {svc_to}")
+# print(f"From: {svc_from}")
+# print(f"To:   {svc_to}")
+
+if svc_from.vpc == svc_to.vpc:
+    print("in same VPC")
+else:
+    # TODO - a better connectivity test; checking for Internet access
+    print("not in same VPC")
+    sys.exit(3)
+    
