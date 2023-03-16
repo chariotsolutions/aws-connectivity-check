@@ -2,6 +2,7 @@ import argparse
 import sys
 
 from . import core
+from .aws import from_lambda, to_rds
 
 
 arg_parser = argparse.ArgumentParser(description="Determines whether one AWS resource can connect to another")
@@ -25,4 +26,17 @@ arg_parser.add_argument("--port",
                                 """)
 args = arg_parser.parse_args()
 
-print(args)
+svc_from = None
+svc_to = None
+
+try:
+    if args.fromLambda:
+        svc_from = from_lambda.lookup(args.fromLambda)
+    if args.toRDS:
+        svc_to = to_rds.lookup(args.toRDS)
+except:
+    print(sys.exc_info()[1])
+    sys.exit(2)
+    
+print(f"From: {svc_from}")
+print(f"To:   {svc_to}")

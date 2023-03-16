@@ -3,6 +3,10 @@
 
 from collections import namedtuple
 
-FromDesc = namedtuple('FromDesc', ['resource'])
+FromInfo = namedtuple('FromInfo', ['resource_type', 'resource_name', 'vpc', 'subnet_ids', 'security_group_ids', 'cidr'])
 
-ToDesc = namedtuple('ToDesc', ['resource'])
+ToInfo = namedtuple('ToInfo', ['resource_type', 'resource_name', 'vpc', 'subnet_ids', 'security_group_ids', 'cidr', 'port'])
+
+Subnet = namedtuple('Subnet', ['vpc_id', 'subnet_id', 'cidr', 'availability_zone', 'route_table', 'access_to_internet'])
+
+RouteTable = namedtuple('RouteTable', ['vpc_id', 'route_table_id', 'gateway'])
