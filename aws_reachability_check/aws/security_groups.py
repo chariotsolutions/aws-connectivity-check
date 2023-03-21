@@ -8,50 +8,104 @@ import ipaddress
 from collections import namedtuple
 from functools import lru_cache
 
-from ..core import SecurityGroupIngressRule, SecurityGroupEgressRule
+##
+## Abstract representation of security group rules
+##
 
-
-def lookup(security_group_ids):
-    """ Given a (possibly empty) list of security groups, looks up the rules
-        associated with those groups and wraps them in an object.
+class SecurityGroupRule:
+    """ Common information for ingress rules and egress rules.
         """
-    result = SecurityGroups()
-    if not security_group_ids:
-        return result
-    for sg in _ec2_client().describe_security_groups(GroupIds=security_group_ids)['SecurityGroups']:
-        group_id = sg['GroupId']
-        result.add_security_group(group_id, sg['GroupName'])
-        _retrieve_rules(result, group_id)
-    return result
+    
+    def __init__(self, group_id, group_name, rule_id, protocol, from_port, to_port):
+        self.group_id = group_id
+        self.group_name = group_name
+        self.rule_id = rule_id
+        self.protocol = protocol
+        self.from_port = 0 if from_port == -1 else from_port
+        self.to_port = 65535 if to_port == -1 else to_port
+        
+    def check_port(self, dest_port):
+        # TODO - check protocol
+        dest_port = int(dest_port) # we get from args as string
+        return dest_port >= self.from_port and dest_port <= self.to_port
+        
+              
+class SecurityGroupEgressRule(SecurityGroupRule):
+    """ Information/checks specific to egress rules.
+        """
+    
+    # TODO - support IPv6
+    def __init__(self, group_id, group_name, rule_id, protocol, from_port, to_port, cidr_ipv4, cidr_ipv6):
+        super().__init__(group_id, group_name, rule_id, protocol, from_port, to_port)
+        self.cidr_ipv4 = cidr_ipv4
+        self.addr_ipv4 = ipaddress.ip_network(cidr_ipv4) if cidr_ipv4 else None
+        
+    def check(self, dest_cidr, port, evaluation):
+        if self.addr_ipv4:
+            dst_addr = ipaddress.ip_network(dest_cidr)
+            if dst_addr.subnet_of(self.addr_ipv4) and self.check_port(port):
+                return True
+            elif dst_addr.subnet_of(self.addr_ipv4):
+                evaluation.add_context(f"egress rule {self.rule_id} allows {dest_cidr} but not port {port}")
+                return False
+            else:
+                return False
+                
+        
+class SecurityGroupIngressRule(SecurityGroupRule):
+    """ Information/checks specific to ingress rules.
+        """
+    
+    # TODO - support IPv6
+    def __init__(self, group_id, group_name, rule_id, protocol, from_port, to_port, src_group_id, src_cidr_ipv4, src_cidr_ipv6):
+        super().__init__(group_id, group_name, rule_id, protocol, from_port, to_port)
+        self.src_group_id = src_group_id
+        self.src_cidr_ipv4 = src_cidr_ipv4
+        self.src_addr_ipv4 = ipaddress.ip_network(src_cidr_ipv4) if src_cidr_ipv4 else None
+        
+    def check(self, src_group_id, src_cidr_ipv4, port, evaluation):
+        if self.src_group_id and src_group_id:
+            if self.src_group_id == src_group_id and self.check_port(port):
+                evaluation.mark_success(f"{self.group_id} has group-based rule {self.rule_id} that allows {src_group_id} on port {port}")
+                return True
+            elif self.src_group_id == src_group_id:
+                evaluation.add_context(f"{self.group_id} has group-based rule {self.rule_id} that allows {src_group_id} but not on port {port}")
+        if self.src_addr_ipv4 and src_cidr_ipv4:
+            src_addr_ipv4 = ipaddress.ip_network(src_cidr_ipv4)
+            if src_addr_ipv4.subnet_of(self.src_addr_ipv4) and self.check_port(port):
+                evaluation.mark_success(f"{self.group_id} has cidr-based rule {self.rule_id} that allows {src_cidr_ipv4} on port {port}")
+                return True
+            elif src_addr_ipv4.subnet_of(self.src_addr_ipv4):
+                evaluation.add_context(f"{self.group_id} has cidr-based rule {self.rule_id} that allows {src_cidr_ipv4} but not on port {port}")
+        return False
 
 
-class SecurityGroups:
-    """ Maintains information about a set of security groups, and evaluates
-        connectivity to a different set.
+class SecurityGroupRules:
+    """ Maintains information about the ingress and egress rules for a set of
+        security groups, and exposes a connection evaluator.
+        
+        The assumption underlying this object is that it will be used to hold
+        either the egress rules for a source group, or the ingress rules for
+        a destination group, not both.
         """
 
     def __init__(self):
-        self.security_group_ids = set()
-        self.security_group_names = {}
-        self.ingress_rules_by_sg = {}
-        self.egress_rules_by_sg = {}
+        self.src_group_ids = set()
+        self.egress_rules = []
+        self.ingress_rules = []
 
-    def add_security_group(self, security_group_id, security_group_name):
-        self.security_group_ids.add(security_group_id)
-        self.security_group_names[security_group_id] = security_group_name
-        self.ingress_rules_by_sg[security_group_id] = []
-        self.egress_rules_by_sg[security_group_id] = []
+    def add_egress_rule(self, group_id, group_name, rule_id, protocol, from_port, to_port, cidr_ipv4, cidr_ipv6):
+        self.src_group_ids.add(group_id)
+        self.egress_rules.append(
+            SecurityGroupEgressRule(group_id, group_name, rule_id, protocol, from_port, to_port, cidr_ipv4, cidr_ipv6))
         return self
 
-    def add_ingress_rule(self, security_group_id, rule):
-        self.ingress_rules_by_sg[security_group_id].append(rule)
+    def add_ingress_rule(self, group_id, group_name, rule_id, protocol, from_port, to_port, src_group_id, src_cidr_ipv4, src_cidr_ipv6):
+        self.ingress_rules.append(
+            SecurityGroupIngressRule(group_id, group_name, rule_id, protocol, from_port, to_port, src_group_id, src_cidr_ipv4, src_cidr_ipv6))
         return self
 
-    def add_egress_rule(self, security_group_id, rule):
-        self.egress_rules_by_sg[security_group_id].append(rule)
-        return self
-
-    def can_connect_to(self, src_cidr, dest_groups, dest_cidr, port):
+    def can_connect_to(self, src_cidr, dest_cidr, dest_port, dest_rules):
         """ Determines whether a resource with the given source CIDR can connect
             to a resource at the specified destination cidr and port that has the
             specified set of rules.
@@ -63,56 +117,24 @@ class SecurityGroups:
             If there are multiple valid connection paths, returns one arbitrarily.
             """
         evaluation = ConnectivityEvaluation()
-        self._check_egress_rules(dest_cidr, port, evaluation)
+        self._check_egress_rules(dest_cidr, dest_port, evaluation)
         if evaluation.failure:
             return evaluation
-        for src_group_id in self.security_group_ids:
-            self._check_ingress_by_referenced_group(src_group_id, dest_groups, port, evaluation)
-            if evaluation.success:
-                return evaluation
-            self._check_ingress_by_cidr(src_cidr, dest_groups, port, evaluation)
-            if evaluation.success:
-                return evaluation
+        self._check_ingress_rules(src_cidr, dest_port, dest_rules, evaluation)
         return evaluation
     
-    def _check_egress_rules(self, dest_cidr, port, evaluation):
-        dst_addr = ipaddress.ip_network(dest_cidr)
-        for src_group_id, rules in self.egress_rules_by_sg.items():
-            for rule in rules:
-                if rule.cidr_ipv4:
-                    egress_addr = ipaddress.ip_network(rule.cidr_ipv4)
-                    if dst_addr.subnet_of(egress_addr) and port_in_range(port, rule):
-                        return evaluation
-                    elif dst_addr.subnet_of(egress_addr):
-                        evaluation.add_context(f"egress rule {rule.rule_id} allows {dest_cidr} but not port {port}")
-        evaluation.failure = f"no egress rule allows connections to {dest_cidr} port {port}"
-        return evaluation
+    def _check_egress_rules(self, dest_cidr, dest_port, evaluation):
+        for rule in self.egress_rules:
+            if rule.check(dest_cidr, dest_port, evaluation):
+                return
+        evaluation.failure = f"no egress rule allows connections to {dest_cidr} port {dest_port}"            
+
+    def _check_ingress_rules(self, src_cidr, dest_port, dest_rules, evaluation):
+        for src_group_id in self.src_group_ids:
+            for rule in dest_rules.ingress_rules:
+                if rule.check(src_group_id, src_cidr, dest_port, evaluation):
+                    return
             
-
-    def _check_ingress_by_referenced_group(self, src_group_id, dest_groups, port, evaluation):
-        for dest_group_id, rules in dest_groups.ingress_rules_by_sg.items():
-            for rule in rules:
-                if rule.from_sg == src_group_id:
-                    if rule.from_port <= port and rule.to_port >= port:
-                        evaluation.mark_success(f"{dest_group_id} has group-based rule {rule.rule_id} that allows {src_group_id} on port {port}")
-                        return evaluation
-                    else:
-                        evaluation.add_context(f"{dest_group_id} has group-based rule {rule.rule_id} that allows {src_group_id} but not on port {port}")
-        return evaluation
-
-    def _check_ingress_by_cidr(self, src_cidr, dest_groups, port, evaluation):
-        src_addr = ipaddress.ip_network(src_cidr)
-        for dest_group_id, rules in dest_groups.ingress_rules_by_sg.items():
-            for rule in rules:
-                if rule.from_cidrv4:
-                    dst_addr = ipaddress.ip_network(rule.from_cidrv4)
-                    if src_addr.subnet_of(dst_addr) and rule.from_port <= port and rule.to_port >= port:
-                        evaluation.mark_success(f"{dest_group_id} has cidr-based rule {rule.rule_id} that allows {src_cidr} on port {port}")
-                        return evaluation
-                    elif src_addr.subnet_of(dst_addr):
-                        evaluation.add_context(f"{dest_group_id} has cidr-based rule {rule.rule_id} that allows {src_cidr} but not on port {port}")
-        return evaluation
-
 
 class ConnectivityEvaluation:
     """ Tracks the definitive success/failure of an evaluated connection,
@@ -134,7 +156,7 @@ class ConnectivityEvaluation:
         self.context.add(msg)
 
 ##
-## Internals
+## Retrieval of actual security group rules
 ##
 
 @lru_cache(maxsize=1)
@@ -142,25 +164,28 @@ def _ec2_client():
     return boto3.client('ec2')
 
 
-def _retrieve_rules(aggregator, group_id):
-    for sgr in _ec2_client().describe_security_group_rules(Filters=[{'Name': 'group-id', 'Values': [group_id]}])['SecurityGroupRules']:
-        rule_id = sgr['SecurityGroupRuleId']
-        protocol = sgr['IpProtocol']
-        from_port = int(sgr['FromPort'])
-        if from_port == -1:
-            from_port = 0
-        to_port = int(sgr['ToPort'])
-        if to_port == -1:
-            to_port = 65535
-        if sgr['IsEgress']:
-            cidr_ipv4 = sgr.get('CidrIpv4')
-            cidr_ipv6 = sgr.get('CidrIpv6')
-            aggregator.add_egress_rule(group_id, SecurityGroupEgressRule(rule_id, protocol, from_port, to_port, cidr_ipv4, cidr_ipv6))
-        else:
-            from_cidrv4 = sgr.get('CidrIpv4')
-            from_sg = sgr.get('ReferencedGroupInfo', {}).get('GroupId')
-            aggregator.add_ingress_rule(group_id, SecurityGroupIngressRule(rule_id, protocol, from_port, to_port, from_cidrv4, from_sg))
-
-
-def port_in_range(port, rule):
-    return port >= rule.from_port and port <= rule.to_port
+def lookup(security_group_ids):
+    """ Given a (possibly empty) list of security groups, retrieves and combines
+        the rules associated with those groups.
+        """
+    result = SecurityGroupRules()
+    if not security_group_ids:
+        return result
+    for sg in _ec2_client().describe_security_groups(GroupIds=security_group_ids)['SecurityGroups']:
+        group_id = sg['GroupId']
+        group_name = sg['GroupName']
+        for sgr in _ec2_client().describe_security_group_rules(Filters=[{'Name': 'group-id', 'Values': [group_id]}])['SecurityGroupRules']:
+            rule_id = sgr['SecurityGroupRuleId']
+            protocol = sgr['IpProtocol']
+            from_port = int(sgr['FromPort'])
+            to_port = int(sgr['ToPort'])
+            if sgr['IsEgress']:
+                cidr_ipv4 = sgr.get('CidrIpv4')
+                cidr_ipv6 = sgr.get('CidrIpv6')
+                result.add_egress_rule(group_id, group_name, rule_id, protocol, from_port, to_port, cidr_ipv4, cidr_ipv6)
+            else:
+                src_group_id = sgr.get('ReferencedGroupInfo', {}).get('GroupId')
+                src_cidr_ipv4 = sgr.get('CidrIpv4')
+                src_cidr_ipv6 = sgr.get('CidrIpv6')
+                result.add_ingress_rule(group_id, group_name, rule_id, protocol, from_port, to_port, src_group_id, src_cidr_ipv4, src_cidr_ipv6)
+    return result

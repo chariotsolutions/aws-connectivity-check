@@ -2,7 +2,7 @@ import argparse
 import sys
 
 from . import core
-from .aws import from_lambda, to_rds
+from .aws import from_lambda, to_rds, security_groups
 
 
 arg_parser = argparse.ArgumentParser(description="Determines whether one AWS resource can connect to another")
@@ -29,6 +29,7 @@ args = arg_parser.parse_args()
 svc_from = None
 svc_to = None
 
+print("loading service information")
 try:
     if args.fromLambda:
         svc_from = from_lambda.lookup(args.fromLambda)
@@ -41,10 +42,26 @@ except:
 # print(f"From: {svc_from}")
 # print(f"To:   {svc_to}")
 
+print("checking VPC connectivity")
 if svc_from.vpc == svc_to.vpc:
-    print("in same VPC")
+    print("* in same VPC")
 else:
     # TODO - a better connectivity test; checking for Internet access
-    print("not in same VPC")
+    print("* not in same VPC")
     sys.exit(3)
+    
+print("checking security groups")
+from_sg_rules = security_groups.lookup(svc_from.security_group_ids)
+to_sg_rules = security_groups.lookup(svc_to.security_group_ids)
+analysis = from_sg_rules.can_connect_to(svc_from.cidr, svc_to.cidr, args.port, to_sg_rules)
+if analysis.success:
+    print(f"* {analysis.success}")
+elif analysis.failure:
+    print(f"* {analysis.failure}")
+    sys.exit(3)
+elif analysis.context:
+    for msg in analysis.context:
+        print(f"* {msg}")
+    sys.exit(3)
+    
     
