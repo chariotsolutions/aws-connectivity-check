@@ -3,7 +3,7 @@ import re
 
 from unittest.mock import Mock, patch
 
-from aws_reachability_check.aws.security_groups import SecurityGroupRules
+from connectivity_check.aws.security_groups import SecurityGroupRules
 
 
 def test_no_ingress_rules():
