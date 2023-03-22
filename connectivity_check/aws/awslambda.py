@@ -1,5 +1,5 @@
-""" Code to retrieve information about a Lambda participating in the "from"
-    side of a relationship.
+""" Code to retrieve information about Lambdas. Named "awslambda" because "lambda"
+    is a reserved word in Python.
     """
 
 import boto3
@@ -11,10 +11,9 @@ from ..core import FromInfo
 from .vpc import lookup as vpc_lookup
 
 
-def lookup(lambda_name):
-    """ This is the entry point: it's passed either the name or ARN of a Lambda, 
-        and returns information about that Lambda's outbound connectivity. If the
-        Lambda doesn't exist, it will throw.
+def lookup_from(lambda_name):
+    """ This is the entry point for retrieving information about Lambda as a source.
+        It may be passed the function's name or ARN.
         """
     lambda_config = _lambda_client().get_function(FunctionName=lambda_name)['Configuration']
     vpc_config = lambda_config.get('VpcConfig')

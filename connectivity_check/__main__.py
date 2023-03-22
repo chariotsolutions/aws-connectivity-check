@@ -2,7 +2,7 @@ import argparse
 import sys
 
 from . import core
-from .aws import from_lambda, to_rds, security_groups
+from .aws import awslambda, rds, security_groups
 
 
 arg_parser = argparse.ArgumentParser(description="Determines whether one AWS resource can connect to another")
@@ -32,9 +32,9 @@ svc_to = None
 print("loading service information")
 try:
     if args.fromLambda:
-        svc_from = from_lambda.lookup(args.fromLambda)
+        svc_from = awslambda.lookup_from(args.fromLambda)
     if args.toRDS:
-        svc_to = to_rds.lookup(args.toRDS)
+        svc_to = rds.lookup_to(args.toRDS)
 except:
     print(sys.exc_info()[1])
     sys.exit(2)

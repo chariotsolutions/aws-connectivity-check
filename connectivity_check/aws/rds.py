@@ -1,5 +1,4 @@
-""" Code to retrieve information about an RDS database participating in the "to"
-    side of a relationship.
+""" Code to retrieve information about RDS database instances.
     """
 
 import boto3
@@ -12,10 +11,10 @@ from ..core import ToInfo
 from .vpc import lookup as vpc_lookup
 
 
-def lookup(rds_name):
-    """ This is the entry point: it's passed either the name or ARN of a Lambda, 
-        and returns information about that Lambda's outbound connectivity. If the
-        Lambda doesn't exist, it will throw.
+def lookup_to(rds_name):
+    """ This the entry point for retrieving information about RDS as a destination.
+        It may be passed either the name of an RDS instance or of a cluster. In the
+        latter case it returns information for the writer instance of that cluster.
         """
     try:
         return _try_to_retrieve_instance(rds_name)
