@@ -2,10 +2,16 @@ import argparse
 import sys
 
 from . import core
-from .aws import awslambda, rds, security_groups
+from .aws import awslambda, ecs, rds, security_groups
 
 
 arg_parser = argparse.ArgumentParser(description="Determines whether one AWS resource can connect to another")
+arg_parser.add_argument("--fromECS",
+                        metavar="SERVICE_NAME",
+                        dest='fromECS',
+                        help="""The Fargate ECS Service that is trying to make a connection. Can be specified via
+                                either name alone (for the default cluster) or CLUSTER:NAME.
+                                """)
 arg_parser.add_argument("--fromLambda",
                         metavar="LAMBDA_NAME",
                         dest='fromLambda',
@@ -31,6 +37,8 @@ svc_to = None
 
 print("loading service information")
 try:
+    if args.fromECS:
+        svc_from = ecs.lookup_from(args.fromECS)
     if args.fromLambda:
         svc_from = awslambda.lookup_from(args.fromLambda)
     if args.toRDS:

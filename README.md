@@ -7,7 +7,7 @@ for the [AWS Reachability Analyzer](https://docs.aws.amazon.com/vpc/latest/reach
 
 Currently supports the following:
 
-* From: Lambda 
+* From: Lambda, ECS (Fargate Service only)
 * To: RDS
 * Resources must be in the same VPC.
 * Security groups must be based on CIDR or referenced security group.
@@ -49,11 +49,12 @@ Service name. Each requires a resource identifier, which can take different form
 depending on the service.
 
 
-| Parameter                   | Resource Identifier / Argument          |
-|-----------------------------|-----------------------------------------|
-| `--port`                    | Port number for connection.             |
-| `--fromLambda`              | Function name or ARN.                   |
-| `--toRDS`                   | Instance or cluster name                |
+| Parameter                   | Resource Identifier / Argument                                                    |
+|-----------------------------|-----------------------------------------------------------------------------------|
+| `--port`                    | Port number for connection.                                                       |
+| `--fromECS`                 | `service_name` for default cluster; `cluster_name:service_name` for non-default.  |
+| `--fromLambda`              | Function name or ARN.                                                             |
+| `--toRDS`                   | Instance or cluster name                                                          |
 
 
 ## How it works
