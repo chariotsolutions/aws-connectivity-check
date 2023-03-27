@@ -21,6 +21,15 @@ def lookup(vpc_id):
         return Vpc(vpc_id, subnets, route_tables_by_subnet)
     else:
         return Vpc(None, None, None)
+    
+    
+def lookup_by_subnet(subnet_id):
+    """ Retrieves VPC information given the ID of one of its subnets.
+        This is used to retrieve information about ECS services, which
+        don't provide the VPC in their description.
+        """
+    subnet_desc = _ec2_client().describe_subnets(SubnetIds=[subnet_id])['Subnets'][0]
+    return lookup(subnet_desc['VpcId'])
 
 
 class Vpc:
